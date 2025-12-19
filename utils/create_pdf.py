@@ -140,19 +140,31 @@ def generate_report(metrics_path: Path, config_path: Path, output_pdf: Path) -> 
         return series
 
     tflops_total = extract_series_by_gpu("tflops_total")
-    tflops_per_gpu = extract_series_by_gpu("tflops_per_gpu")
     temps = extract_series_by_gpu("gpu_temp_c")
     utils = extract_series_by_gpu("gpu_util_pct")
     mem_gb = extract_series_by_gpu("gpu_mem_used_gb")
     mem_pct = extract_series_by_gpu("gpu_mem_used_pct")
     power_w = extract_series_by_gpu("gpu_power_w")
-    power_pct = extract_series_by_gpu("gpu_power_pct")
+
+    # Single-line TFLOPS (approx total) series using first row per step.
+    total_series: Dict[str, Dict[str, List]] = {"TFLOPS (approx total)": {"ts": [], "vals": []}}
+    seen_steps = set()
+    for r in metrics_rows:
+        step = r.get("step")
+        if step in seen_steps:
+            continue
+        seen_steps.add(step)
+        v = r.get("tflops_total")
+        if v in ("n/a", "", None):
+            continue
+        total_series["TFLOPS (approx total)"]["ts"].append(dt.datetime.fromisoformat(r["timestamp"]))
+        total_series["TFLOPS (approx total)"]["vals"].append(float(v))
 
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(output_pdf) as pdf:
         # GPU summary table
         # Cover page / header
-        fig = plt.figure(figsize=A4_SIZE, dpi=DPI)
+        fig = plt.figure(figsize=A4_SIZE)
         ax = fig.add_subplot(111)
         ax.axis("off")
         ax.text(0.5, 0.8, "GPU Stress Test Report", fontsize=18, ha="center", va="center", weight="bold")
@@ -162,7 +174,7 @@ def generate_report(metrics_path: Path, config_path: Path, output_pdf: Path) -> 
         plt.close(fig)
 
         if gpus:
-            fig = plt.figure(figsize=A4_SIZE, dpi=DPI)
+            fig = plt.figure(figsize=A4_SIZE)
             columns = ["GPU ID", "Name", "Type", "VRAM (GB)", "SMs", "Approx CUDA Cores", "Compute Cap", "Power Limit (W)"]
             rows = [
                 [
@@ -182,7 +194,7 @@ def generate_report(metrics_path: Path, config_path: Path, output_pdf: Path) -> 
             plt.close(fig)
 
         # Model/config table
-        fig = plt.figure(figsize=A4_SIZE, dpi=DPI)
+        fig = plt.figure(figsize=A4_SIZE)
         columns = ["Field", "Value"]
         keys = [
             "batch_size",
@@ -202,15 +214,15 @@ def generate_report(metrics_path: Path, config_path: Path, output_pdf: Path) -> 
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
-        # Metric plots
+        # Metric plots (per GPU)
         fig, axes = plt.subplots(3, 2, figsize=A4_SIZE, dpi=DPI, sharex=True)
         ax_list = axes.flatten()
         series = [
-            ("TFLOPS Total", tflops_total),
-            ("TFLOPS per GPU", tflops_per_gpu),
+            ("TFLOPS (approx total)", total_series),
             ("GPU Util (%)", utils),
             ("GPU Temp (C)", temps),
             ("Memory Used (GB)", mem_gb),
+            ("Memory Used (%)", mem_pct),
             ("Power (W)", power_w),
         ]
         for ax, (label, data) in zip(ax_list, series):
@@ -219,4 +231,4 @@ def generate_report(metrics_path: Path, config_path: Path, output_pdf: Path) -> 
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
-        # Power percent plot removed per request
+        # Power percent plot intentionally omitted

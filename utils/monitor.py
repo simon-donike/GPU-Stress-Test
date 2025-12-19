@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import subprocess
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -59,18 +60,26 @@ class PerformanceMonitor(pl.Callback):
     ) -> None:
         super().__init__()
         self.flops_per_batch = flops_per_sample * batch_size
-        self.csv_path = csv_path
+        self.base_csv_path = csv_path
+        self.rank_csv_path: Optional[Path] = None
         self._start_time: Optional[dt.datetime] = None
         self.gpu_index: Optional[int] = None
         self.log_every_n_steps = log_every_n_steps
         self.gpu_ids = gpu_ids
 
-        if not self.csv_path.exists():
-            self._write_header()
+    def _prepare_rank_file(self, trainer) -> None:
+        if self.rank_csv_path is not None:
+            return
+        rank = self._get_rank(trainer)
+        stem = self.base_csv_path.stem
+        suffix = self.base_csv_path.suffix
+        self.rank_csv_path = self.base_csv_path.with_name(f"{stem}_rank{rank}{suffix}")
+        if not self.rank_csv_path.exists():
+            self._write_header(self.rank_csv_path)
 
-    def _write_header(self) -> None:
-        self.csv_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.csv_path.open("w", newline="") as f:
+    def _write_header(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(
                 [
@@ -98,11 +107,9 @@ class PerformanceMonitor(pl.Callback):
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx: int, dataloader_idx: int = 0):  # noqa: D401, ANN001
         if self._start_time is None:
             return
-        if hasattr(trainer, "is_global_zero"):
-            if not trainer.is_global_zero:
-                return
-        elif hasattr(trainer, "global_rank") and trainer.global_rank != 0:
+        if not self._is_global_zero(trainer):
             return
+        self._prepare_rank_file(trainer)
 
         if torch.cuda.is_available() and self.gpu_index is None:
             # Capture the active GPU index once training starts.
@@ -122,7 +129,7 @@ class PerformanceMonitor(pl.Callback):
         if trainer.global_step != 0 and (trainer.global_step % self.log_every_n_steps) != 0:
             return
 
-        with self.csv_path.open("a", newline="") as f:
+        with self.rank_csv_path.open("a", newline="") as f:  # type: ignore[arg-type]
             writer = csv.writer(f)
             now = dt.datetime.utcnow().isoformat()
             if not metrics_list:
@@ -161,3 +168,29 @@ class PerformanceMonitor(pl.Callback):
                         round(metrics["power_w"], 1) if metrics.get("power_w") is not None else "n/a",
                     ]
                 )
+
+    @staticmethod
+    def _is_global_zero(trainer) -> bool:
+        if hasattr(trainer, "is_global_zero"):
+            return bool(trainer.is_global_zero)
+        if hasattr(trainer, "global_rank"):
+            return int(trainer.global_rank) == 0
+        try:
+            import torch.distributed as dist
+
+            return (not dist.is_available()) or (not dist.is_initialized()) or dist.get_rank() == 0
+        except Exception:
+            return True
+
+    @staticmethod
+    def _get_rank(trainer) -> int:
+        if hasattr(trainer, "global_rank"):
+            return int(trainer.global_rank)
+        try:
+            import torch.distributed as dist
+
+            if dist.is_available() and dist.is_initialized():
+                return dist.get_rank()
+        except Exception:
+            pass
+        return int(os.environ.get("RANK", 0))
