@@ -75,3 +75,21 @@ If `nvidia-smi` is unavailable (CPU-only/missing drivers), GPU fields are `n/a`.
 - `utils/monitor.py`: per-step GPU metrics and CSV logging.
 - `utils/runner.py`: orchestration (trainer, callbacks, PDF generation).
 - `utils/create_pdf.py`: PDF report generator.
+
+## 🐳 Docker (optional)
+Build:
+```bash
+docker build -t gpu-stress-test .
+```
+Run (all GPUs):
+```bash
+docker run --rm --gpus all -v $(pwd):/app gpu-stress-test python run.py
+```
+Run (single GPU 0, custom knobs):
+```bash
+docker run --rm --gpus '"device=0"' -v $(pwd):/app gpu-stress-test \
+  python run.py --batch-size 256 --num-batches 400 --num-epochs 5
+```
+Notes:
+- Requires NVIDIA Container Toolkit (`--gpus` flag). The `metrics/` output will appear in your host repo due to the volume mount.
+- Adjust CLI flags as usual; `--devices -1` uses all visible GPUs in the container.

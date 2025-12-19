@@ -57,7 +57,7 @@ class DummyLightningModel(pl.LightningModule):
                 mat_input = torch.matmul(mat_input, self.compute_mat)
             preds = mat_input
         loss = self.loss_fn(preds, y)
-        return loss
+        return {"loss": loss}
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
