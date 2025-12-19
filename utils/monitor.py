@@ -125,6 +125,16 @@ class PerformanceMonitor(pl.Callback):
         tflops_per_gpu = tflops_total / world_size if world_size > 0 else tflops_total
         metrics_list = query_gpu_metrics_all(self.gpu_ids)
 
+        # Update tqdm/progress bar with average GPU utilization (rank 0 only).
+        avg_util = None
+        util_vals = [m["util_pct"] for m in metrics_list if m.get("util_pct") is not None]
+        if util_vals:
+            avg_util = sum(util_vals) / len(util_vals)
+            if hasattr(trainer, "progress_bar_metrics"):
+                trainer.progress_bar_metrics["gpu_util_avg"] = round(avg_util, 1)
+            if hasattr(trainer, "callback_metrics"):
+                trainer.callback_metrics["gpu_util_avg"] = torch.tensor(avg_util)
+
         # Skip writing unless we're on a log step (always log step 0).
         if trainer.global_step != 0 and (trainer.global_step % self.log_every_n_steps) != 0:
             return

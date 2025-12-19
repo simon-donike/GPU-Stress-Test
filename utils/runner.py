@@ -15,6 +15,13 @@ from utils.create_pdf import generate_report
 
 
 def run_stress_test(config: StressTestConfig) -> None:
+    # Ensure a single run name across all ranks/processes.
+    env_key = "GPU_STRESS_RUN_NAME"
+    if env_key in os.environ:
+        config.run_name = os.environ[env_key]
+    else:
+        os.environ[env_key] = config.run_name
+
     # Only rank 0 prepares the run directory and config file.
     if _is_global_zero():
         config.run_dir.mkdir(parents=True, exist_ok=True)

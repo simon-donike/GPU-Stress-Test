@@ -27,7 +27,7 @@ class StressTestConfig:
     generate_data_on_device: bool = True
     extra_matmul_repeats: int = 0  # extra square matmuls per batch to increase compute
     extra_matmul_dim: int = 4096  # dimension of square matmul; large values raise FLOPS
-    log_every_n_steps: int = 100
+    log_every_n_steps: int = 50
     devices: int = 1  # default to a single GPU (GPU 0)
     metrics_root: Path = field(default_factory=default_metrics_root)
     run_name: str = field(default_factory=default_run_name)
