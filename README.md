@@ -1,5 +1,7 @@
 # GPU-Stress-Test 🚀🔥
-GPU stress test & benchmark for PyTorch Lightning with TFLOPS logging, GPU temperature/utilization/memory/power tracking, multi-GPU (DDP) support, and PDF reports. Ideal for validating GPU health, cooling, and performance on RTX, A100, and other CUDA cards.
+GPU stress test & benchmark for PyTorch Lightning with TFLOPS logging, GPU temperature/utilization/memory/power tracking, multi-GPU (DDP) support, and PDF reports. Ideal for validating GPU health, cooling, and performance on RTX, A100, and other CUDA cards.  
+
+Please note that actual TFLOPS are very hard to estimate, this value is better interpreted relatively to other runs instead of in absolutes.
 
 ## 🔧 Install
 ```bash
