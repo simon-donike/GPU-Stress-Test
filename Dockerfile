@@ -1,15 +1,17 @@
-# GPU-Stress-Test container
-# Uses a CUDA runtime image so GPUs are available when launched with `--gpus`.
-FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+# Pinned CUDA runtime and PyTorch base; launch with NVIDIA Container Toolkit.
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-docker.txt /app/requirements-docker.txt
+RUN python -m pip install --no-cache-dir -r /app/requirements-docker.txt
 
-# Copy source
-COPY . /app
+# Copy only application sources and documentation needed in the image.
+COPY run.py /app/run.py
+COPY utils /app/utils
+COPY docs /app/docs
+COPY LICENSE /app/LICENSE
+COPY README.md /app/README.md
 
-# Default command (override in docker run)
-CMD ["python", "run.py"]
+# Starting a container must not start a stress workload.
+CMD ["python", "run.py", "--help"]
