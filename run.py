@@ -5,7 +5,8 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import asdict
+import tempfile
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from utils.autotune import AutotuneConfig, command_for_config, run_autotune
@@ -54,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Abort at a sampled GPU temperature threshold; requires readable, matched telemetry.")
     parser.add_argument("--memory-fraction", type=float, default=None,
                         help="Optional CUDA allocator cap as a fraction of total VRAM; also reserve free-memory headroom.")
-    parser.add_argument("--measurement-seconds", type=float, default=None,
+    parser.add_argument("--measurement-seconds", type=float, default=defaults.measurement_seconds,
                         help="Stop after this many measured seconds (excluding warmup), or the batch/epoch limit, whichever comes first.")
     parser.add_argument("--log-every-n-seconds", type=float, default=None,
                         help="Also close measurement windows after this many seconds; checked at batch boundaries.")
@@ -122,12 +123,22 @@ def main() -> int:
     # Importing the training stack is intentionally deferred until an actual run is requested.
     try:
         if autotune:
-            directory = run_autotune(config, tuning)
-            print(f"Calibration complete. Results: {directory}", flush=True)
             if run_mode == "calibrate":
+                directory = run_autotune(config, tuning)
+                print(f"Calibration complete. Results: {directory}", flush=True)
                 print(f"Suggested command (not executed): {directory / 'recommended_command.txt'}")
                 return 0
-            recommended = StressTestConfig(**json.loads((directory / "recommended_config.json").read_text(encoding="utf-8")))
+            # Trial artifacts are temporary for a normal calibrated run. Read the
+            # recommendation and clean up before exec (which skips context cleanup).
+            with tempfile.TemporaryDirectory(prefix="gpu-stress-calibration-") as temporary:
+                calibration = replace(config, metrics_root=Path(temporary), generate_report=False)
+                try:
+                    directory = run_autotune(calibration, tuning)
+                    values = json.loads((directory / "recommended_config.json").read_text(encoding="utf-8"))
+                except Exception as exc:
+                    raise RuntimeError(f"Calibration failed: {exc}. Temporary calibration files were removed.") from exc
+                recommended = replace(StressTestConfig(**values), metrics_root=config.metrics_root.resolve(),
+                                      run_name=config.run_name, generate_report=config.generate_report)
             print(f"Starting stress test with batch size {recommended.batch_size} per GPU. "
                   f"Results: {recommended.run_dir}", flush=True)
             # Re-exec with explicit direct-run argv: Lightning re-launches this

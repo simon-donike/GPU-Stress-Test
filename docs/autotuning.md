@@ -45,7 +45,9 @@ The selector first forms a shortlist of eligible candidates whose weighted throu
 
 ## Output artifacts
 
-The tuning directory contains progressive results so an interrupted search remains inspectable:
+Normal calibrated runs use temporary trial storage, removed on completion or failure,
+and export only the final stress-test directory. No calibration plot is generated.
+With explicit `--autotune-only`, the tuning directory retains progressive results:
 
 - `tuning_results.csv`: one row per candidate, status, weighted rates, utilization, memory fraction, duration, and trial path.
 - `tuning_results.json`: complete trial records, requested settings, effective memory and temperature guards, runtime device identities, recommendation, and failure reasons.
@@ -54,9 +56,9 @@ The tuning directory contains progressive results so an interrupted search remai
 - `recommended_command.txt`: the selected stress-test command, including `--no-autotune` to prevent recalibration, one-second logging, and a high step threshold.
 - `trial_*/`: each isolated child run's metrics, metadata, process log, and failure details.
 
-By default, the CLI starts the saved recommendation immediately after calibration and report generation succeed. The stress test uses a fresh sibling directory named in `recommended_config.json`; the tuning directory retains all trial evidence. The follow-up preserves your requested batch/epoch limits, optional measured-duration limit, model, precision, and data mode, while using the selected batch size, calibrated memory/temperature guards, and calibration logging cadence. The calibration timeout applies to calibration children only, not the follow-up stress test.
+By default, the CLI loads the recommendation, removes temporary calibration files, and starts the stress test in the requested run directory. The follow-up preserves your requested batch/epoch limits, optional measured-duration limit, model, precision, and data mode, while using the selected batch size, calibrated memory/temperature guards, and calibration logging cadence. The calibration timeout applies to calibration children only, not the follow-up stress test.
 
-Calibration errors, missing eligible candidates, or report-generation failures prevent automatic continuation. A valid recommendation below the utilization target still proceeds, with the target result recorded and printed. With `--autotune-only`, inspect the saved command and run it later when ready. The generated command uses a unique run name; choose a fresh `--run-name` if rerunning it after an automatic run has already used that directory.
+Calibration errors or missing eligible candidates prevent automatic continuation. A valid recommendation below the utilization target still proceeds, with the target result recorded and printed. With `--autotune-only`, inspect the saved command and run it later when ready. The generated command uses a unique run name; choose a fresh `--run-name` if rerunning it after an automatic run has already used that directory.
 
 ## Limitations and references
 

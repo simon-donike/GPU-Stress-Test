@@ -28,7 +28,7 @@ def _validate_component(value: str, name: str) -> None:
 class StressTestConfig:
     # A moderate starting workload. No configuration guarantees a fit in available VRAM.
     batch_size: int = 64
-    num_batches: int = 100
+    num_batches: int = 1_000_000
     num_epochs: int = 1
     input_dim: int = 1024
     hidden_dim: int = 2048
@@ -48,7 +48,7 @@ class StressTestConfig:
     seed: int = 42
     max_temperature_c: float | None = None
     memory_fraction: float | None = None
-    measurement_seconds: float | None = None
+    measurement_seconds: float | None = 300.0
     min_measurement_windows: int = 1
     log_every_n_seconds: float | None = None
     generate_report: bool = True

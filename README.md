@@ -33,10 +33,14 @@ The commands below are usage examples; none were executed to prepare this README
 | `python run.py --dry-run` | Print validated settings, execution mode, and analytical estimates; no PyTorch import, GPU access, or file writes |
 | `python run.py --accelerator cpu --precision 32-true` | Run on CPU without GPU calibration |
 
-Calibrate all visible GPUs, then target 60 measured seconds of stress:
+Standard runs target five measured minutes (300 seconds), excluding warmup and
+calibration. Explicit batch/epoch limits or safety stops can end a run earlier.
+Use `--measurement-seconds` to request a different duration.
+
+Calibrate all visible GPUs, then target five measured minutes of stress:
 
 ```bash
-python run.py --devices -1 --num-batches 100000 --measurement-seconds 60 \
+python run.py --devices -1 --measurement-seconds 300 \
   --max-temperature-c 80
 ```
 
@@ -51,7 +55,8 @@ support one node; external `torchrun` launches require `--no-autotune` and
 | Option | Default / meaning |
 | --- | --- |
 | `--batch-size` | `64` per device; calibration starting point, exact with `--no-autotune` |
-| `--num-batches`, `--num-epochs` | `100`, `1`; batches per epoch per device, including warmup |
+| `--num-batches`, `--num-epochs` | `1000000`, `1`; batches per epoch per device, including warmup |
+| `--measurement-seconds` | `300`; measured duration target, excluding warmup |
 | `--input-dim`, `--hidden-dim`, `--output-dim` | `1024`, `2048`, `1024` |
 | `--num-hidden-layers` | `4`, followed by one output layer |
 | `--warmup-steps`, `--log-every-n-steps` | `5` excluded batches, `10` measured batches per window in direct mode |
@@ -92,8 +97,8 @@ unreadable required telemetry and non-finite losses abort execution. See
 ## Outputs
 
 Results go to new directories under `metrics/` (override with `--metrics-dir`).
-Existing run directories are never reused. Calibration and the follow-up stress
-test have separate directories.
+Existing run directories are never reused. Calibrated runs export only the final stress-test directory; trial files are
+temporary and removed before the stress test starts.
 
 | Stress-test artifact | Contents |
 | --- | --- |
@@ -103,14 +108,15 @@ test have separate directories.
 | `summary.png` | 180-DPI overview with a temperature timeline and peak-temperature card |
 | `summary.json` | Weighted aggregates, thermal summary, exclusions, per-device statistics, and report hashes |
 
-Calibration saves `tuning_results.csv`, `tuning_results.json`,
+Only explicit `--autotune-only` runs save `tuning_results.csv`, `tuning_results.json`,
 `recommended_config.json`, `recommended_command.txt`, per-trial logs, and
 `autotune.png` when reporting is enabled. Saved recommendation commands include
 `--no-autotune`. Completed CSV windows survive failures after logging has started;
 check `config.json` for completion status.
 
 Reports use consistent units, rank colors, UTC axes, vector PDF charts, and
-explicit gaps for missing telemetry. **Temperature is featured on the first page:**
+explicit gaps for missing telemetry. Utilization curves use a centered five-reading
+moving mean within contiguous readings; raw CSV values and summary statistics stay unchanged. **Temperature is featured on the first page:**
 sampled peak, per-GPU temperature curves, configured stop, and margin to that stop.
 Thermal summaries include all saved readings, even from excluded throughput windows,
 and show readable-row coverage. Missing temperature is unavailable, never zero;

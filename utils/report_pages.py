@@ -208,6 +208,24 @@ def _series(rows: Sequence[Mapping[str, Any]], field: str) -> tuple[list[Any], l
     return xs, ys
 
 
+def _smooth_utilization(values: Sequence[float]) -> list[float]:
+    """Centered five-reading mean within each finite segment; preserve gaps."""
+    result = list(values)
+    start = 0
+    while start < len(values):
+        if not math.isfinite(values[start]):
+            start += 1
+            continue
+        end = start
+        while end < len(values) and math.isfinite(values[end]):
+            end += 1
+        for index in range(start, end):
+            window = values[max(start, index - 2):min(end, index + 3)]
+            result[index] = sum(window) / len(window)
+        start = end
+    return result
+
+
 def _plot_metric(ax: Any, rows: Sequence[Mapping[str, Any]], ranks: Sequence[Any], colors: Mapping[Any, str],
                  fields: Sequence[str], title: str, unit: str, *, reference: str | None = None) -> None:
     _time_axis(ax, title, unit)
@@ -221,8 +239,12 @@ def _plot_metric(ax: Any, rows: Sequence[Mapping[str, Any]], ranks: Sequence[Any
                 continue
             has_data = True
             drawn_fields.add(index)
-            ax.plot(*_series(selected, field),
-                    color=colors[rank], linestyle="--" if index else "-", marker="o", markersize=2.5,
+            xs, ys = _series(selected, field)
+            utilization = field == "gpu_util_pct"
+            if utilization:
+                ys = _smooth_utilization(ys)
+            ax.plot(xs, ys,
+                    color=colors[rank], linestyle="--" if index else "-", marker=None if utilization else "o", markersize=2.5,
                     linewidth=1.3, alpha=.9)
         if reference and any(row.get(reference) is not None for row in selected):
             reference_drawn = True
@@ -285,7 +307,7 @@ def telemetry(rows: Sequence[Mapping[str, Any]], config: Mapping[str, Any], aggr
                                         if row["window"] in valid else None)
         plot_rows.append(row)
     panels = (
-        (("gpu_util_pct",), "Sampled utilization", "%", None),
+        (("gpu_util_pct",), "Utilization (5-reading moving mean)", "%", None),
         (("gpu_temp_c",), "Temperature", "°C", None),
         (("gpu_mem_used_gib",), "Board memory", "GiB", "gpu_mem_total_gib"),
         (("gpu_power_w",), "Board power", "W", "gpu_power_limit_w"),
