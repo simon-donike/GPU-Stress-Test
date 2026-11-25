@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from utils.autotune import AutotuneConfig, run_autotune
+from utils.autotune import AutotuneConfig, command_for_config, run_autotune
 from utils.config import StressTestConfig
 from utils.failures import record_failure
 from utils.flops import estimate_workload
@@ -20,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     integer_options = {
-        "batch_size": "Samples per batch per device.",
+        "batch_size": "Starting batch per device for calibration; exact batch size with --no-autotune.",
         "num_batches": "Batches per epoch per device, including any warmup.",
         "num_epochs": "Training epochs.",
         "input_dim": "Input feature width.",
@@ -66,8 +67,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true",
                         help="Print validated configuration and analytical size/FLOP estimates; no imports of torch, GPU access, or files written.")
     tuning = AutotuneConfig()
-    parser.add_argument("--autotune", action="store_true",
-                        help="Run bounded GPU calibration trials and save a batch-size recommendation; never start a full run automatically.")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--autotune", dest="run_mode", action="store_const", const="autotune",
+                       help="Calibrate GPU batch size, then automatically run the stress test (default in GPU mode).")
+    modes.add_argument("--no-autotune", dest="run_mode", action="store_const", const="direct",
+                       help="Skip calibration and run the stress test with the requested batch size.")
+    modes.add_argument("--autotune-only", dest="run_mode", action="store_const", const="calibrate",
+                       help="Calibrate and save a recommendation without starting the stress test.")
+    parser.set_defaults(run_mode="auto")
     for name, kind, description in (
         ("max_batch_size", int, "Largest batch size per GPU to consider."),
         ("max_trials", int, "Maximum number of isolated candidate runs."),
@@ -88,13 +95,15 @@ def main() -> int:
     parser = build_parser()
     args = vars(parser.parse_args())
     dry_run = args.pop("dry_run")
-    autotune = args.pop("autotune")
+    run_mode = args.pop("run_mode")
     device_info_file = args.pop("device_info_file")
     failure_dir = args.pop("failure_dir")
     tuning_args = {name.removeprefix("tune_"): args.pop(name) for name in list(args) if name.startswith("tune_")}
     try:
         config = StressTestConfig(**args)
         tuning = AutotuneConfig(**tuning_args)
+        autotune = (run_mode in {"autotune", "calibrate"}
+                    or (run_mode == "auto" and config.accelerator == "gpu" and device_info_file is None))
         if autotune:
             tuning.validate(config)
             if device_info_file is not None:
@@ -103,6 +112,8 @@ def main() -> int:
         parser.error(str(exc))
     if dry_run:
         payload = {"config": config.to_dict(), "workload": estimate_workload(config)}
+        payload["execution_mode"] = ("calibration_only" if run_mode == "calibrate" else
+                                     "calibration_then_stress" if autotune else "stress_only")
         if autotune:
             payload["autotune"] = asdict(tuning)
         print(json.dumps(payload, indent=2))
@@ -112,9 +123,18 @@ def main() -> int:
     try:
         if autotune:
             directory = run_autotune(config, tuning)
-            print(f"Calibration complete. Results: {directory}")
-            print(f"Suggested command (not executed): {directory / 'recommended_command.txt'}")
-            return 0
+            print(f"Calibration complete. Results: {directory}", flush=True)
+            if run_mode == "calibrate":
+                print(f"Suggested command (not executed): {directory / 'recommended_command.txt'}")
+                return 0
+            recommended = StressTestConfig(**json.loads((directory / "recommended_config.json").read_text(encoding="utf-8")))
+            print(f"Starting stress test with batch size {recommended.batch_size} per GPU. "
+                  f"Results: {recommended.run_dir}", flush=True)
+            # Re-exec with explicit direct-run argv: Lightning re-launches this
+            # command for DDP ranks, which must not recursively calibrate.
+            command = command_for_config(recommended)
+            os.execv(command[0], command)
+            raise RuntimeError("Could not replace the calibration process with the stress test.")
         if device_info_file is not None:
             from utils.runner import _resolve_runtime, _write_json_atomic
 

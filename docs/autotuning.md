@@ -1,10 +1,18 @@
 # Batch-size autotuning
 
-Batch autotuning is an opt-in calibration pass. It measures the real configured workload at several batch sizes, then writes a recommendation for a later ordinary run. It never launches that full run automatically.
+GPU runs calibrate batch size by default. Calibration measures the configured workload at several batch sizes, saves a recommendation, and then the CLI automatically starts the stress test with that configuration. CPU runs skip GPU calibration.
 
-## Start a calibration
+## Choose the run mode
 
-Enable it with `--autotune` and keep the workload settings you want to calibrate. The batch size is the requested starting point and must not exceed the tuning ceiling:
+| Command | Behavior |
+| --- | --- |
+| `python run.py` | Calibrate, then automatically start the GPU stress test. |
+| `python run.py --autotune` | Explicitly select the default GPU workflow. |
+| `python run.py --no-autotune` | Skip calibration and run the exact requested batch size. |
+| `python run.py --autotune-only` | Calibrate and save results; do not start the follow-up stress test. |
+| `python run.py --dry-run` | Print the configuration, analytical estimates, and planned mode without running either phase. |
+
+The three mode flags are mutually exclusive. Explicit calibration flags require GPU mode. Keep the workload settings you want to calibrate; the batch size is the requested starting point and must not exceed the tuning ceiling:
 
 ```bash
 python run.py --autotune --batch-size 512 \
@@ -19,7 +27,7 @@ The model, dimensions, precision, device selection, data-generation mode, extra 
 
 ## Safety and scope
 
-Calibration currently requires Linux/POSIX process groups, GPU mode, physical NVIDIA GPUs, and an ordinary single invocation of `python run.py`. MIG devices are rejected because the calibration needs stable physical GPU UUID telemetry. Selected GPUs must be idle and are locked with per-UUID process locks while trials run. Every trial runs in a fresh isolated child process, with its own CUDA context, allocator cap, metrics directory, and failure log. Existing output directories are never reused.
+Calibration currently requires Linux process groups, GPU mode, physical NVIDIA GPUs, and an ordinary single invocation of `python run.py`. For multi-GPU calibration use `--devices -1` or a GPU count. External `torchrun` launches must pass `--no-autotune` and match `--devices` to their process count. MIG devices are rejected because calibration needs stable physical GPU UUID telemetry. Selected GPUs must be idle and are locked with per-UUID process locks while trials run. Every trial runs in a fresh isolated child process, with its own CUDA context, allocator cap, metrics directory, and failure log. Existing output directories are never reused.
 
 The parent checks device identity, visibility, and idle compute processes before each trial. Each child checks memory headroom before moving the model to a GPU and monitors the sampled temperature guard (default `80°C` when none is supplied). Calibration always applies an allocator cap: the smaller of the requested total-memory fraction and free memory minus reserved headroom. Headroom is at least 1 GiB or the uncapped fraction of total VRAM, whichever is larger. Ordinary runs only apply this additional check when `--memory-fraction` is supplied. Neither check guarantees room for every runtime allocation. The thermal guard stops at or above its threshold. Missing or UUID-mismatched telemetry aborts the calibration; it is not treated as zero. The allocator memory fraction limits PyTorch's caching allocator. It is not a cap on total board memory, and `100%` sampled GPU utilization does not prove compute saturation.
 
@@ -43,10 +51,12 @@ The tuning directory contains progressive results so an interrupted search remai
 - `tuning_results.json`: complete trial records, requested settings, effective memory and temperature guards, runtime device identities, recommendation, and failure reasons.
 - `autotune.png`: offline throughput/utilization/memory plot when reporting is enabled.
 - `recommended_config.json`: the full ordinary-run configuration with the selected batch size.
-- `recommended_command.txt`: an explicit command for the later run, retaining one-second logging and a high step threshold.
+- `recommended_command.txt`: the selected stress-test command, including `--no-autotune` to prevent recalibration, one-second logging, and a high step threshold.
 - `trial_*/`: each isolated child run's metrics, metadata, process log, and failure details.
 
-Read the recommendation and then run the generated command deliberately. Autotuning never converts calibration output into a stress run by itself.
+By default, the CLI starts the saved recommendation immediately after calibration and report generation succeed. The stress test uses a fresh sibling directory named in `recommended_config.json`; the tuning directory retains all trial evidence. The follow-up preserves your requested batch/epoch limits, optional measured-duration limit, model, precision, and data mode, while using the selected batch size, calibrated memory/temperature guards, and calibration logging cadence. The calibration timeout applies to calibration children only, not the follow-up stress test.
+
+Calibration errors, missing eligible candidates, or report-generation failures prevent automatic continuation. A valid recommendation below the utilization target still proceeds, with the target result recorded and printed. With `--autotune-only`, inspect the saved command and run it later when ready. The generated command uses a unique run name; choose a fresh `--run-name` if rerunning it after an automatic run has already used that directory.
 
 ## Limitations and references
 

@@ -53,7 +53,7 @@ signal, not a numerical correctness or GPU memory-integrity test.
 
 ## Interpreting reports
 
-Use `summary.json` for the saved aggregate and `summary.png` or `report.pdf` for trends. A run's metadata records status (`running`, `completed`, `failed`, or `interrupted`); an incomplete run should be treated as partial evidence. Compare runs only after checking saved configuration and precision metadata. Legacy CSVs may be read for convenience, but inferred FLOPs are explicitly labeled `legacy/unverified`; they are not certified measurements. Historical images in `resources/` are examples only and do not describe the current machine or software.
+Use `summary.json` for the saved aggregate and `summary.png` or `report.pdf` for trends. A run's metadata records status (`running`, `completed`, `failed`, or `interrupted`); an incomplete run should be treated as partial evidence. Compare runs only after checking saved configuration and precision metadata. Legacy CSVs may be read for convenience, but inferred FLOPs are explicitly labeled `legacy/unverified`; they are not certified measurements. The [README illustration](../README.md#illustrative-report) uses invented data with documented arithmetic; it is not a measured result or rendered report.
 
 ## Reference documentation
 

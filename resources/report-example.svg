@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1169" height="827" viewBox="0 0 1169 827" role="img" aria-labelledby="title description">
+  <title id="title">GPU Stress Test — illustrative performance and temperature overview</title>
+  <desc id="description">Hand-authored design illustration, not a rendered report or measured benchmark. Invented data: two equal ranks, batch 128, default model with four hidden layers and no extra GEMMs. Five two-second windows contain 40, 45, 50, 55, and 60 batches per rank. Total 64,000 samples over 10 measured seconds yield 6,400 samples per second and 0.6174015488 estimated TFLOP/s globally. Invented temperatures are 48, 56, 64, 70, 72 degrees Celsius on rank 0 and 46, 53, 60, 66, 69 on rank 1. Peak sampled temperature is 72 degrees Celsius, 8 degrees below the illustrative configured stop of 80. All ten temperature readings are present. These are not continuous maxima. No GPU or report renderer was run.</desc>
+  <defs>
+    <style>
+      text { font-family: "DejaVu Sans", Arial, sans-serif; fill: #14243a; }
+      .muted { fill: #53657c; }
+      .small { font-size: 12px; }
+      .tick { font-size: 11px; fill: #53657c; }
+      .label { font-size: 11px; font-weight: 700; letter-spacing: 0.7px; fill: #53657c; }
+      .heading { font-size: 16px; font-weight: 700; }
+      .grid { stroke: #dfe7f0; stroke-width: 1; }
+      .panel { fill: #fff; stroke: #dfe7f0; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1169" height="827" fill="#f3f6fb"/>
+  <rect width="1169" height="120" fill="#14243a"/>
+  <text x="64" y="32" style="fill:#a9bfd8;font-size:11px;font-weight:700;letter-spacing:1px">GPU STRESS TEST / REPORT DESIGN EXAMPLE</text>
+  <text x="64" y="88" style="fill:#fff;font-size:34px;font-weight:700">Performance &amp; temperature</text>
+  <rect x="929" y="21" width="176" height="29" rx="5" fill="#6d4b17"/>
+  <text x="1017" y="40" text-anchor="middle" style="fill:#fff;font-size:11px;font-weight:700">ILLUSTRATIVE DATA</text>
+  <rect x="64" y="117" width="112" height="4" fill="#22d3ee"/>
+  <text x="64" y="151" class="small muted">Hand-authored preview · invented values · no workload or report renderer executed</text>
+
+  <rect x="64" y="185" width="244" height="106" rx="8" class="panel"/>
+  <text x="80" y="209" class="label">ESTIMATED THROUGHPUT</text>
+  <text x="80" y="247" style="font-size:29px;font-weight:700;fill:#2463ce">0.617 TFLOP/s</text>
+  <text x="80" y="275" class="small muted">Weighted global dense-matmul rate</text>
+
+  <rect x="330" y="185" width="244" height="106" rx="8" class="panel"/>
+  <text x="346" y="209" class="label">PEAK SAMPLED TEMPERATURE</text>
+  <text x="346" y="247" style="font-size:29px;font-weight:700;fill:#c56a12">72.0 °C</text>
+  <text x="346" y="275" class="small muted">Stop 80 °C · 8 °C below</text>
+
+  <rect x="596" y="185" width="244" height="106" rx="8" class="panel"/>
+  <text x="612" y="209" class="label">SAMPLE THROUGHPUT</text>
+  <text x="612" y="247" style="font-size:29px;font-weight:700;fill:#16816a">6.40k /s</text>
+  <text x="612" y="275" class="small muted">64,000 samples across two ranks</text>
+
+  <rect x="862" y="185" width="243" height="106" rx="8" class="panel"/>
+  <text x="878" y="209" class="label">MEASURED TIME</text>
+  <text x="878" y="247" style="font-size:29px;font-weight:700;fill:#8b4cc4">10.0 s</text>
+  <text x="878" y="275" class="small muted">Sum of slowest-rank window times</text>
+
+  <text x="95" y="337" class="heading">Global estimated throughput</text>
+  <text x="95" y="356" class="tick">TFLOP/s</text>
+  <rect x="95" y="369" width="450" height="165" fill="#fff"/>
+  <path d="M95 534H545 M95 479H545 M95 424H545 M95 369H545 M95 369V534" class="grid" fill="none"/>
+  <g text-anchor="end" class="tick">
+    <text x="85" y="538">0.00</text><text x="85" y="483">0.25</text>
+    <text x="85" y="428">0.50</text><text x="85" y="373">0.75</text>
+  </g>
+  <!-- y = 534 - 220 * TFLOP/s; rates derive from integer sample counts. -->
+  <line x1="95" y1="398.1717" x2="545" y2="398.1717" stroke="#53657c" stroke-width="1.3" stroke-dasharray="5 5"/>
+  <polyline points="115,425.3373 215,411.7545 315,398.1717 415,384.5888 515,371.006" fill="none" stroke="#2463ce" stroke-width="2.5"/>
+  <g fill="#2463ce" stroke="#fff" stroke-width="1.5">
+    <circle cx="115" cy="425.3373" r="4.5"/><circle cx="215" cy="411.7545" r="4.5"/>
+    <circle cx="315" cy="398.1717" r="4.5"/><circle cx="415" cy="384.5888" r="4.5"/><circle cx="515" cy="371.006" r="4.5"/>
+  </g>
+  <g text-anchor="middle" class="tick">
+    <text x="115" y="552">12:00:02</text><text x="215" y="552">12:00:04</text><text x="315" y="552">12:00:06</text>
+    <text x="415" y="552">12:00:08</text><text x="515" y="552">12:00:10</text>
+  </g>
+  <line x1="315" y1="352" x2="342" y2="352" stroke="#53657c" stroke-width="1.3" stroke-dasharray="5 5"/>
+  <text x="349" y="356" class="tick">Weighted: 0.6174 TFLOP/s</text>
+
+  <text x="655" y="337" class="heading">Sampled GPU temperature</text>
+  <text x="655" y="356" class="tick">°C</text>
+  <line x1="708" y1="352" x2="730" y2="352" stroke="#2463ce" stroke-width="2.5"/>
+  <text x="737" y="356" class="tick">rank 0</text>
+  <line x1="802" y1="352" x2="824" y2="352" stroke="#c56a12" stroke-width="2.5"/>
+  <text x="831" y="356" class="tick">rank 1</text>
+  <rect x="655" y="369" width="450" height="165" fill="#fff"/>
+  <path d="M655 534H1105 M655 492.75H1105 M655 451.5H1105 M655 410.25H1105 M655 369H1105 M655 369V534" class="grid" fill="none"/>
+  <g text-anchor="end" class="tick">
+    <text x="645" y="538">0</text><text x="645" y="496.75">25</text><text x="645" y="455.5">50</text>
+    <text x="645" y="414.25">75</text><text x="645" y="373">100</text>
+  </g>
+  <line x1="655" y1="402" x2="1105" y2="402" stroke="#b33c4c" stroke-width="1.8" stroke-dasharray="6 5"/>
+  <text x="1095" y="393" text-anchor="end" style="font-size:12px;fill:#b33c4c;font-weight:700">Configured stop 80 °C</text>
+  <!-- y = 534 - 1.65 * Celsius; both rank curves use the same scale. -->
+  <polyline points="675,454.8 775,441.6 875,428.4 975,418.5 1075,415.2" fill="none" stroke="#2463ce" stroke-width="2.5"/>
+  <polyline points="675,458.1 775,446.55 875,435 975,425.1 1075,420.15" fill="none" stroke="#c56a12" stroke-width="2.5"/>
+  <g fill="#2463ce" stroke="#fff" stroke-width="1.5">
+    <circle cx="675" cy="454.8" r="4"/><circle cx="775" cy="441.6" r="4"/><circle cx="875" cy="428.4" r="4"/>
+    <circle cx="975" cy="418.5" r="4"/><circle cx="1075" cy="415.2" r="4"/>
+  </g>
+  <g fill="#c56a12" stroke="#fff" stroke-width="1.5">
+    <circle cx="675" cy="458.1" r="4"/><circle cx="775" cy="446.55" r="4"/><circle cx="875" cy="435" r="4"/>
+    <circle cx="975" cy="425.1" r="4"/><circle cx="1075" cy="420.15" r="4"/>
+  </g>
+  <g text-anchor="middle" class="tick">
+    <text x="675" y="552">12:00:02</text><text x="775" y="552">12:00:04</text><text x="875" y="552">12:00:06</text>
+    <text x="975" y="552">12:00:08</text><text x="1075" y="552">12:00:10</text>
+  </g>
+  <text x="1105" y="571" text-anchor="end" class="tick">UTC · illustrative window-end timestamps</text>
+
+  <text x="95" y="601" class="heading">Sample throughput</text>
+  <text x="95" y="620" class="tick">Samples/s</text>
+  <rect x="95" y="632" width="450" height="100" fill="#fff"/>
+  <path d="M95 732H545 M95 682H545 M95 632H545 M95 632V732" class="grid" fill="none"/>
+  <g text-anchor="end" class="tick">
+    <text x="85" y="736">0</text><text x="85" y="686">4,000</text><text x="85" y="636">8,000</text>
+  </g>
+  <line x1="95" y1="652" x2="545" y2="652" stroke="#53657c" stroke-width="1.3" stroke-dasharray="5 5"/>
+  <polyline points="115,668 215,660 315,652 415,644 515,636" fill="none" stroke="#16816a" stroke-width="2.5"/>
+  <g fill="#16816a" stroke="#fff" stroke-width="1.5">
+    <circle cx="115" cy="668" r="4"/><circle cx="215" cy="660" r="4"/><circle cx="315" cy="652" r="4"/>
+    <circle cx="415" cy="644" r="4"/><circle cx="515" cy="636" r="4"/>
+  </g>
+  <g text-anchor="middle" class="tick">
+    <text x="115" y="750">12:00:02</text><text x="215" y="750">12:00:04</text><text x="315" y="750">12:00:06</text>
+    <text x="415" y="750">12:00:08</text><text x="515" y="750">12:00:10</text>
+  </g>
+  <text x="545" y="769" text-anchor="end" class="tick">UTC · illustrative window-end timestamps</text>
+
+  <text x="655" y="611" class="label">READING THIS EXAMPLE</text>
+  <text x="655" y="636" class="small muted">
+    <tspan x="655" dy="0">Batch 128 per rank. Default model. No extra GEMMs.</tspan>
+    <tspan x="655" dy="20">5/5 windows assumed complete; 64,000 samples.</tspan>
+    <tspan x="655" dy="26">Temperature: 10/10 invented readings present.</tspan>
+    <tspan x="655" dy="20">Sampled peaks: rank 0 at 72 °C; rank 1 at 69 °C.</tspan>
+    <tspan x="655" dy="20">Configured stop: 80 °C; margin to sampled peak: 8 °C.</tspan>
+    <tspan x="655" dy="26">All values are invented. Peaks are not continuous maxima.</tspan>
+  </text>
+
+  <line x1="64" y1="785" x2="1105" y2="785" class="grid"/>
+  <text x="64" y="808" class="tick">ILLUSTRATION ONLY · analytical matmul accounting · invented values · not a benchmark</text>
+  <text x="1105" y="808" text-anchor="end" style="font-size:12px;font-weight:700">01</text>
+</svg>

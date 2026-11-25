@@ -1,12 +1,14 @@
 # GPU Stress Test
 
-GPU Stress Test runs a configurable synthetic dense network and records windowed throughput together with GPU telemetry. It is intended for repeatable relative comparisons, cooling checks, and capacity checks. Reported TFLOP/s is an analytical estimate for dense matrix multiplications in the timed host window, not a hardware benchmark or vendor peak specification.
+Configurable dense-network training with batch calibration, windowed throughput,
+GPU temperature monitoring, and PDF reports. TFLOP/s is an **analytical dense-matmul estimate**;
+use it to compare equivalent workloads, precisions, and software stacks.
 
-## Requirements
+## Install
 
-- Python 3.10 or newer
-- PyTorch 2.5 or newer and a compatible CUDA driver for GPU mode
-- An NVIDIA driver and `nvidia-smi` for temperature, utilization, memory, and power telemetry
+Requires Python 3.10+, PyTorch 2.5+, and a CUDA-compatible NVIDIA driver for GPU
+execution. Calibration also requires Linux, `nvidia-smi`, and idle physical GPUs;
+MIG is not supported by calibration. Dependencies are in [requirements.txt](requirements.txt).
 
 ```bash
 python -m venv .venv
@@ -14,122 +16,166 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-GPU mode is the default and fails clearly when CUDA is unavailable; it never silently changes to CPU mode. Request CPU mode explicitly with `--accelerator cpu --precision 32-true`.
+Use a CUDA-enabled PyTorch build for GPU execution. CPU mode must be requested
+explicitly; GPU mode never falls back to CPU.
 
-## Safe first steps
+## Run
 
-Validate a configuration without importing PyTorch, touching a GPU, creating an output directory, or writing files:
+**GPU runs calibrate batch size, then automatically start the stress test**
+(`--autotune`, enabled by default).
+The commands below are usage examples; none were executed to prepare this README.
 
-```bash
-python run.py --dry-run
-```
-
-The defaults are deliberately moderate, but no setting can guarantee a fit on every card. Start small, then increase dimensions while watching memory and temperature:
-
-```bash
-python run.py --batch-size 16 --input-dim 512 --hidden-dim 1024 \
-  --output-dim 512 --num-hidden-layers 2 --num-batches 20 --num-epochs 1
-```
-
-Run all visible GPUs with `--devices -1`; use `--devices 1` for one GPU. `--generate-on-device` (the default) avoids CPU data-loader cost. Use `--no-generate-on-device` when host-side generation and transfer are part of the workload. `--max-temperature-c` is a sampled stop guard and requires matched readable telemetry; it is not a real-time thermal safety system.
-
-Each run gets a unique directory below `metrics/` by default. Existing run folders are never reused. A completed run contains the CSV, `config.json`, `report.pdf`, `summary.png`, and `summary.json` when reporting is enabled. Disable reporting with `--no-report`.
-
-## Useful options
-
-`--batch-size`, `--num-batches`, `--num-epochs`, `--input-dim`, `--hidden-dim`, `--output-dim`, and `--num-hidden-layers` define the synthetic model and schedule. `--extra-matmul-repeats` and `--extra-matmul-dim` add independent forward-only square GEMMs; increase them cautiously because memory use grows with the square operand.
-
-`--warmup-steps` excludes initial batches from throughput windows. `--log-every-n-steps` controls the normal window size; a final partial window is retained. `--precision auto` selects BF16 mixed precision when every selected GPU has compute capability at least 8.0, otherwise FP16 mixed precision. The effective precision is saved in run metadata. `32-true` uses FP32 tensors; the `--float32-matmul-precision` setting controls whether internal FP32 matmul arithmetic uses the highest, high, or medium policy.
-
-See all defaults and validation rules with `python run.py --help`.
-
-## Batch autotuning
-
-Use `--autotune` to calibrate batch size for the exact workload configuration before a later ordinary run. It starts at half the requested batch, doubles eligible candidates, and backs off after OOM or allocator-limit failures. The default limits are eight trials, eight measured seconds per candidate, a 120-second child timeout, a 95% utilization target, and an 85% CUDA allocator fraction:
-
-```bash
-python run.py --autotune --batch-size 512 --tune-max-batch-size 4096 \
-  --tune-max-trials 8 --tune-seconds 8 --tune-timeout-seconds 120 \
-  --tune-target-utilization 95 --tune-memory-fraction 0.85
-```
-
-Calibration is GPU-only, Linux-only, rejects MIG and busy GPUs, and runs each candidate in a fresh isolated process. Missing or mismatched telemetry aborts it. The selector first keeps candidates within 3% of the global best weighted throughput, then prefers target utilization on every GPU and the smallest batch within that shortlist. It writes trial CSV/JSON results, an `autotune.png` plot, a recommended config, and a command; it never starts the full run automatically. See [docs/autotuning.md](docs/autotuning.md) for the safety model and selection details.
-
-| Setting | Default |
+| Command | Behavior |
 | --- | --- |
-| Batch size / batches per epoch / epochs | 64 / 100 / 1, per device |
-| Input / hidden / output width | 1024 / 2048 / 1024 |
-| Hidden layers | 4, plus the output layer |
-| Warmup / measured batches per window | 5 / 10 |
-| Devices / precision | 1 / `auto` |
-| CPU loader workers | 0 |
-| Extra matmul repeats / dimension | 0 / 2048 |
-| Seed / Adam learning rate | 42 / 0.001 |
+| `python run.py` | Calibrate, then stress one GPU with the recommendation |
+| `python run.py --autotune-only` | Calibrate and save a recommendation without the follow-up stress test |
+| `python run.py --no-autotune --batch-size 128` | Skip calibration; use exactly 128 samples per device |
+| `python run.py --dry-run` | Print validated settings, execution mode, and analytical estimates; no PyTorch import, GPU access, or file writes |
+| `python run.py --accelerator cpu --precision 32-true` | Run on CPU without GPU calibration |
 
-Warmup counts toward the requested batches, so `num_batches × num_epochs` must
-exceed `warmup_steps`. Use `--warmup-steps 0` when intentionally measuring every
-batch, including initialization overhead. Multi-GPU execution supports one node;
-under `torchrun`, set `--devices` to match `--nproc-per-node`.
-
-The memory preflight rejects a model whose parameter-state lower bound cannot fit
-in a selected GPU's total VRAM. With an explicit allocator cap it also probes the
-available capped-memory condition; neither check guarantees a fit because
-activations, auxiliary operands, optimizer temporaries, and other processes also
-need memory. Non-finite losses abort the run. Completed CSV windows are preserved
-after failures; `config.json` records the status once output initialization has
-succeeded.
-
-## Reports and offline regeneration
-
-Reports are generated only from saved CSV and JSON files. They plot global throughput, per-rank telemetry, and memory peaks, and mark legacy or incomplete FLOP data as unverified. Regenerate on any machine with the reporting dependencies:
+Calibrate all visible GPUs, then target 60 measured seconds of stress:
 
 ```bash
-python -m utils.create_pdf \
-  --metrics metrics/<run>/metrics.csv \
-  --config metrics/<run>/config.json \
-  --output metrics/<run>/report.pdf
+python run.py --devices -1 --num-batches 100000 --measurement-seconds 60 \
+  --max-temperature-c 80
 ```
 
-Files in `resources/` are historical example images and a report for visual reference. They are not current measurements or performance claims.
+Warmup and calibration are outside that duration. Timed stopping occurs at batch
+boundaries after the minimum complete-window count; the batch/epoch limit can end
+the run earlier. `--devices N` selects the first N visible GPUs. Multi-GPU runs
+support one node; external `torchrun` launches require `--no-autotune` and
+`--devices` matching `--nproc-per-node`.
 
-Reporting requires only Matplotlib and the Python standard library. See
-[docs/reporting.md](docs/reporting.md) for integrity handling and artifact details.
+### Configuration
 
-## Measurement method
+| Option | Default / meaning |
+| --- | --- |
+| `--batch-size` | `64` per device; calibration starting point, exact with `--no-autotune` |
+| `--num-batches`, `--num-epochs` | `100`, `1`; batches per epoch per device, including warmup |
+| `--input-dim`, `--hidden-dim`, `--output-dim` | `1024`, `2048`, `1024` |
+| `--num-hidden-layers` | `4`, followed by one output layer |
+| `--warmup-steps`, `--log-every-n-steps` | `5` excluded batches, `10` measured batches per window in direct mode |
+| `--devices`, `--precision` | `1`, `auto`; BF16 mixed on GPUs with compute capability ≥ 8.0, otherwise FP16 mixed |
+| `--no-generate-on-device` | Use CPU data generation and transfer; default generates on the training device |
+| `--extra-matmul-repeats`, `--extra-matmul-dim` | `0`, `2048`; optional independent square GEMMs per batch |
+| `--max-temperature-c`, `--memory-fraction` | Unset in direct mode; sampled thermal stop and CUDA allocator cap |
+| `--no-report` | Save metrics/configuration without PDF, PNG, or summary JSON |
 
-The accounting convention and CSV field definitions are documented in [docs/measurement.md](docs/measurement.md). In brief, an FMA counts as two FLOPs. The first linear layer contributes `4 × B × I × H` training FLOPs per batch; every later hidden or output layer contributes `6 × B × in × out`. An extra square GEMM contributes `2 × R × D³` per batch and is not multiplied by batch size. Bias, activation, loss, Adam updates, random-number generation, copies, and communication are excluded from the numerator, while loader gaps and host overhead remain in the timed denominator.
+`auto` requires every selected GPU to support BF16 before choosing it. CPU `auto`
+uses FP32. `--precision 32-true` uses FP32 tensors; internal matmul precision is
+controlled by `--float32-matmul-precision` (default `highest`). Warmup must be
+smaller than `num_batches × num_epochs`. See `python run.py --help` for all options.
 
-For distributed runs, throughput sums FLOPs across ranks and divides by the maximum elapsed time in the window. Summaries use total FLOPs divided by total window seconds, so long and short windows are weighted correctly. Missing or UUID-mismatched telemetry stays blank; it is never treated as zero. Memory fields distinguish board-reported total/used GiB from PyTorch allocator peaks.
+### Calibration
 
-Older results are not directly comparable: the former estimator counted forward
-work against training time, extrapolated totals from one rank, and miscounted
-extra matmuls. The new extra workload is independent of network predictions,
-`--num-hidden-layers 1` now creates exactly one hidden layer, and defaults are
-smaller. Legacy reports retain their original rates under an explicit
-`legacy/unverified` label; they cannot provide a corrected weighted aggregate.
+| Option | Default |
+| --- | --- |
+| `--tune-max-batch-size` | `4096` samples per GPU |
+| `--tune-max-trials` | `8` isolated candidate processes |
+| `--tune-seconds`, `--tune-timeout-seconds` | `8` measured seconds, `120` seconds total timeout per candidate |
+| `--tune-target-utilization` | `95` percent on every GPU |
+| `--tune-memory-fraction` | `0.85` maximum CUDA allocator fraction, subject to free-memory headroom |
+
+Calibration starts at half the requested batch, grows candidates, and backs off
+after memory failures. It keeps candidates within 3% of the best weighted sample
+throughput, prefers those meeting the utilization target on every GPU, then selects
+the smallest batch. **100% sampled utilization is neither guaranteed nor proof of
+peak compute throughput.** An eligible recommendation below the target still
+starts the follow-up stress test; calibration failure prevents it.
+
+The follow-up retains the calibrated allocator cap and thermal stop (80°C unless
+overridden), uses one-second window targets, and writes to a separate run folder.
+Caps apply to PyTorch allocation, not all board memory. Thermal stops are sampled;
+unreadable required telemetry and non-finite losses abort execution. See
+[calibration details](docs/autotuning.md) for selection, limits, and failure handling.
+
+## Outputs
+
+Results go to new directories under `metrics/` (override with `--metrics-dir`).
+Existing run directories are never reused. Calibration and the follow-up stress
+test have separate directories.
+
+| Stress-test artifact | Contents |
+| --- | --- |
+| `metrics.csv` | Per-rank counts, timings, and telemetry for each window |
+| `config.json` | Configuration, effective precision, hardware metadata, and run status |
+| `report.pdf` | Performance/temperature overview, telemetry, device comparisons, and configuration/integrity appendix |
+| `summary.png` | 180-DPI overview with a temperature timeline and peak-temperature card |
+| `summary.json` | Weighted aggregates, thermal summary, exclusions, per-device statistics, and report hashes |
+
+Calibration saves `tuning_results.csv`, `tuning_results.json`,
+`recommended_config.json`, `recommended_command.txt`, per-trial logs, and
+`autotune.png` when reporting is enabled. Saved recommendation commands include
+`--no-autotune`. Completed CSV windows survive failures after logging has started;
+check `config.json` for completion status.
+
+Reports use consistent units, rank colors, UTC axes, vector PDF charts, and
+explicit gaps for missing telemetry. **Temperature is featured on the first page:**
+sampled peak, per-GPU temperature curves, configured stop, and margin to that stop.
+Thermal summaries include all saved readings, even from excluded throughput windows,
+and show readable-row coverage. Missing temperature is unavailable, never zero;
+sampled peaks are not continuous maxima. Invalid or incomplete windows are excluded
+from weighted aggregates and listed in the summary. Legacy estimates are labeled
+`legacy/unverified`; their weighted aggregates are unavailable.
+
+### Illustrative report
+
+The example below is **hand-authored SVG with invented data**, not a rendered PDF,
+measured result, or performance claim. It illustrates the report's overview style;
+no application, test, GPU workload, or report renderer was run to create it.
+
+![Illustrative report: invented throughput and per-GPU temperature curves, a 72°C sampled peak, an 80°C configured stop, and an 8°C margin.](resources/report-example.svg)
+
+Example assumptions: two ranks, batch 128, the default model dimensions and four
+hidden layers, no extra GEMMs. Five windows each last 2 seconds on both ranks and
+contain 40, 45, 50, 55, and 60 batches **per rank**, respectively.
+Invented temperature samples are `48, 56, 64, 70, 72°C` on rank 0 and
+`46, 53, 60, 66, 69°C` on rank 1.
+
+| Derived quantity | Illustrative value |
+| --- | --- |
+| Counted training FLOPs per sample | `4×1024×2048 + 6×(3×2048² + 2048×1024) = 96,468,992` |
+| Samples / measured duration | `2 × 128 × 250 = 64,000` samples / `10` seconds |
+| Weighted global sample throughput | `6,400` samples/s |
+| Weighted estimated throughput | `0.6174` TFLOP/s global; `0.3087` TFLOP/s per rank |
+| Peak sampled temperature / configured stop | `72°C` / `80°C`; `8°C` margin |
+| Temperature coverage | `10/10` saved rows with readings; no continuous maximum inferred |
+
+### Regenerate from saved data
+
+Only Matplotlib and the Python standard library are required; no GPU is needed.
+Replace `RUN` with an existing stress-test directory:
+
+```bash
+python -m utils.create_pdf --metrics metrics/RUN/metrics.csv \
+  --config metrics/RUN/config.json --output metrics/RUN/report.pdf
+```
+
+This writes the PDF, PNG, and summary JSON without changing the input data. See
+[reporting details](docs/reporting.md) for page layouts, validation, and artifact integrity.
+
+## FLOP accounting
+
+One FMA counts as two FLOPs. Per batch, the first linear layer contributes
+`4 × B × I × H`; later hidden and output layers contribute `6 × B × in × out`.
+Optional square GEMMs add `2 × R × D³` **per batch**, independent of batch size.
+Training counts already include the forward pass.
+
+Global window throughput is `sum(rank FLOPs) / max(rank elapsed seconds)`.
+Run throughput is `sum(window FLOPs) / sum(window seconds)`, not an arithmetic
+mean of rates. Non-GEMM work is excluded from counted FLOPs but contributes to
+time when inside a measured window; warmup and between-window telemetry/logging
+are excluded. Missing telemetry stays missing. See [measurement and CSV schema](docs/measurement.md)
+for timing boundaries, precision caveats, and the exact accounting convention.
 
 ## Docker
 
-The image uses a pinned PyTorch CUDA runtime base. Build and launch it with the NVIDIA Container Toolkit:
+The image pins PyTorch 2.5.1 with CUDA 12.4. GPU containers require the NVIDIA
+Container Toolkit. The default container command prints help; an explicit run
+command starts calibration and stress:
 
 ```bash
 docker build -t gpu-stress-test .
 docker run --rm --gpus all -v "$PWD/metrics:/app/metrics" \
   gpu-stress-test python run.py --devices -1
 ```
-
-The image command is `python run.py --help`, so starting a container does not start a stress workload. Pass an explicit `python run.py ...` command as above. Keep dimensions and batch size appropriate for the selected GPU.
-
-## Layout
-
-- `run.py`: validated CLI and dry-run entry point
-- `utils/config.py`: dependency-free configuration and path validation
-- `utils/flops.py`: analytical sizing and FLOP formulas
-- `utils/model.py`, `utils/data.py`: synthetic workload
-- `utils/monitor.py`: timed windows, distributed aggregation, and telemetry
-- `utils/create_pdf.py`: offline PDF, PNG, and JSON report generation
-- `utils/runner.py`: PyTorch Lightning orchestration
-- `utils/autotune.py`, `utils/tuning_analysis.py`: isolated calibration and evidence-based batch selection
-- `utils/tuning_report.py`: offline calibration plot
-- `docs/measurement.md`: measurement conventions and schema
-- `docs/autotuning.md`: bounded batch-size calibration and safety model

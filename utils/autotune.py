@@ -1,4 +1,4 @@
-"""Opt-in batch-size calibration using isolated executions of the real runner.
+"""Batch-size calibration using isolated executions of the real runner.
 
 The parent deliberately never imports PyTorch or initializes CUDA. Candidate
 processes own CUDA state, allocator caps, and the unchanged model workload.
@@ -68,7 +68,9 @@ def _write_json(path: Path, value: Any) -> None:
 
 def command_for_config(config: StressTestConfig, python: str = sys.executable) -> list[str]:
     """Build argv without a shell; preserve the exact model, precision, and device selection."""
-    args = [python, str(PROJECT_ROOT / "run.py")]
+    # Every generated invocation already has its batch size selected. This also
+    # prevents recursive calibration in discovery/trials and Lightning workers.
+    args = [python, str(PROJECT_ROOT / "run.py"), "--no-autotune"]
     for key, value in config.to_dict().items():
         if value is None:
             continue
@@ -211,7 +213,8 @@ def run_autotune(config: StressTestConfig, tuning: AutotuneConfig) -> Path:
     if not sys.platform.startswith("linux"):
         raise RuntimeError("Autotuning currently requires Linux process groups; ordinary runs are unchanged.")
     if any(key in os.environ for key in ("LOCAL_RANK", "RANK", "LOCAL_WORLD_SIZE")) or int(os.environ.get("WORLD_SIZE", "1")) != 1:
-        raise RuntimeError("Launch autotuning once with python run.py; it manages DDP children itself.")
+        raise RuntimeError("Launch autotuning once with python run.py; it manages DDP children itself. "
+                           "For an external torchrun launch, pass --no-autotune.")
     packages = ["torch", "pytorch-lightning"] + (["matplotlib"] if config.generate_report else [])
     for package in packages:
         try:
@@ -298,7 +301,7 @@ def run_autotune(config: StressTestConfig, tuning: AutotuneConfig) -> Path:
         result["status"] = "completed" if recommendation is not None else "no_eligible_candidate"
         if recommendation is not None:
             recommended = replace(config, batch_size=int(recommendation["batch_size"]), run_name=default_run_name(),
-                                  measurement_seconds=None, memory_fraction=memory_fraction,
+                                  memory_fraction=memory_fraction,
                                   max_temperature_c=temperature, log_every_n_seconds=1.0,
                                   log_every_n_steps=100000, metrics_root=config.metrics_root.resolve())
             _write_json(root / "recommended_config.json", recommended.to_dict())

@@ -8,7 +8,6 @@ import hashlib
 import json
 import math
 import tempfile
-import textwrap
 import uuid
 from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
@@ -18,12 +17,11 @@ from typing import Any, Mapping, Sequence
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-DPI = 160
-COLORS = ("#2563eb", "#d97706", "#059669", "#db2777", "#7c3aed", "#0891b2", "#dc2626", "#64748b")
+from utils import report_pages, report_style
+
 COUNT_FIELDS = {
     "window", "rank", "world_size", "batch_count", "sample_count", "forward_flops",
     "training_flops", "extra_flops", "total_flops",
@@ -194,149 +192,6 @@ def _aggregate(rows: Sequence[Mapping[str, Any]], legacy: bool, expected_world_s
     }
 
 
-def _rank_order(rank: Any) -> tuple[int, Any]:
-    number = _integer(rank)
-    return (0, number) if number is not None else (1, str(rank))
-
-
-def _decorate_axis(ax: Any, title: str, unit: str) -> None:
-    ax.set_title(title, loc="left", fontsize=11, weight="bold", pad=10)
-    ax.set_ylabel(unit, fontsize=9)
-    ax.grid(axis="y", color="#e2e8f0", linewidth=.7)
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.spines[["left", "bottom"]].set_color("#cbd5e1")
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=2, maxticks=5))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S", tz=dt.timezone.utc))
-    ax.tick_params(labelsize=8)
-
-
-def _plot_metric(ax: Any, rows: Sequence[Mapping[str, Any]], fields: Sequence[tuple[str, str]],
-                 title: str, unit: str, colors: Mapping[Any, str]) -> None:
-    _decorate_axis(ax, title, unit)
-    any_data = False
-    for rank in sorted(colors, key=_rank_order):
-        for field_index, (field, label) in enumerate(fields):
-            points = [(row["_time"], row[field]) for row in rows
-                      if row["rank"] == rank and row["_time"] is not None and row.get(field) is not None]
-            if not points:
-                continue
-            any_data = True
-            xs, ys = zip(*points)
-            name = f"rank {rank}" + (f" {label}" if len(fields) > 1 else "")
-            ax.plot(xs, ys, color=colors[rank], linestyle="--" if field_index else "-",
-                    marker="o", markersize=3, linewidth=1.4, label=name)
-    if any_data:
-        ax.legend(fontsize=7, ncol=2, frameon=False)
-        ax.set_ylim(bottom=0)
-    else:
-        ax.text(.5, .5, "No saved readings", transform=ax.transAxes, ha="center", color="#64748b")
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-
-def _dashboard(rows: Sequence[Mapping[str, Any]], config: Mapping[str, Any],
-               aggregate: Mapping[str, Any], legacy: bool) -> Any:
-    fig, axes = plt.subplots(4, 2, figsize=(12, 12), dpi=DPI)
-    fig.patch.set_facecolor("#f8fafc")
-    runtime = config.get("runtime", {})
-    precision = runtime.get("precision", config.get("precision", "unknown")) if isinstance(runtime, dict) else "unknown"
-    title = "GPU STRESS TEST  /  saved run"
-    subtitle = f"{config.get('run_name', 'unnamed')}  |  {config.get('status', 'unknown status')}  |  precision: {precision}"
-    fig.text(.07, .974, title, fontsize=18, weight="bold", color="#0f172a")
-    fig.text(.07, .950, subtitle[:145], fontsize=10, color="#475569")
-    colors = {rank: COLORS[index % len(COLORS)] for index, rank in enumerate(sorted({row["rank"] for row in rows}, key=_rank_order))}
-    ax = axes[0, 0]
-    _decorate_axis(ax, "Global estimated matmul throughput", "TFLOP/s")
-    points = [point for point in aggregate["points"] if point["time"] is not None and point["tflops"] is not None]
-    if points:
-        ax.plot([point["time"] for point in points], [point["tflops"] for point in points],
-                color=COLORS[0], marker="o", markersize=3, linewidth=1.6)
-        ax.set_ylim(bottom=0)
-    else:
-        ax.text(.5, .5, "No valid measured windows", transform=ax.transAxes, ha="center", color="#64748b")
-        ax.set_xticks([])
-        ax.set_yticks([])
-    # Recompute local rates from valid saved counts rather than trusting derived columns.
-    plot_rows = [dict(row) for row in rows]
-    if not legacy:
-        valid_windows = {point["window"] for point in aggregate["points"]}
-        for row in plot_rows:
-            row["tflops_per_device"] = (row["total_flops"] / row["elapsed_seconds"] / 1e12
-                                        if row["window"] in valid_windows else None)
-    specs = [
-        (axes[0, 1], [("tflops_per_device", "")], "Per-device estimated throughput", "TFLOP/s"),
-        (axes[1, 0], [("gpu_util_pct", "")], "Sampled GPU utilization", "%"),
-        (axes[1, 1], [("gpu_temp_c", "")], "Sampled GPU temperature", "C"),
-        (axes[2, 0], [("gpu_mem_used_gib", "")], "Board memory used", "GiB"),
-        (axes[2, 1], [("gpu_power_w", "")], "Sampled GPU power", "W"),
-        (axes[3, 0], [("cuda_peak_allocated_gib", "allocated"), ("cuda_peak_reserved_gib", "reserved")],
-         "Per-window allocator peaks", "GiB"),
-    ]
-    for axis, fields, label, unit in specs:
-        _plot_metric(axis, plot_rows, fields, label, unit, colors)
-    axes[3, 1].axis("off")
-    rate = aggregate["aggregate_tflops"]
-    count_label = "Valid legacy steps" if legacy else "Complete windows"
-    lines = ["MEASUREMENT SUMMARY", "", f"{count_label}: {aggregate['window_count']}",
-             f"Excluded windows: {len(aggregate['excluded_windows'])}",
-             f"Weighted rate: {rate:.3f} TFLOP/s" if rate is not None else "Weighted rate: unavailable",
-             f"Samples: {aggregate['sample_count']:,}" if aggregate["sample_count"] is not None else "Samples: unknown",
-             "FMA = 2; counted dense matmuls only.", "Telemetry is sampled, not a continuous maximum."]
-    if legacy:
-        lines.append("LEGACY / UNVERIFIED FLOP ESTIMATES")
-    axes[3, 1].text(.03, .95, "\n".join(lines), va="top", fontsize=9, linespacing=1.3, color="#334155")
-    fig.text(.07, .018, "UTC save times  |  Warmup excluded  |  Training and host time included; telemetry and report work excluded", fontsize=8, color="#64748b")
-    fig.subplots_adjust(left=.075, right=.97, top=.91, bottom=.065, hspace=.58, wspace=.23)
-    return fig
-
-
-def _config_rows(value: Any, prefix: str = "") -> list[tuple[str, str]]:
-    if isinstance(value, dict):
-        rows = []
-        for key, item in value.items():
-            rows.extend(_config_rows(item, f"{prefix}.{key}" if prefix else str(key)))
-        return rows
-    if isinstance(value, list):
-        rows = []
-        for index, item in enumerate(value):
-            rows.extend(_config_rows(item, f"{prefix}[{index}]"))
-        return rows or [(prefix, "[]")]
-    return [(prefix, str(value))]
-
-
-def _metadata_pages(pdf: PdfPages, config: Mapping[str, Any], summary: Mapping[str, Any]) -> None:
-    # Draw wrapped text with explicit row heights: long nested metadata must not
-    # overflow a table or disappear behind an ellipsis.
-    lines = []
-    for key, value in _config_rows({"run": config, "summary": summary}):
-        keys = textwrap.wrap(key, 38) or [""]
-        values = textwrap.wrap(value, 66) or [""]
-        height = max(len(keys), len(values))
-        lines.append((keys, values, height))
-    pages: list[list[Any]] = [[]]
-    used = 0
-    for keys, values, height in lines:
-        for offset in range(0, height, 45):
-            segment = (keys[offset:offset + 45], values[offset:offset + 45], min(45, height - offset))
-            if used + segment[2] + 1 > 48:
-                pages.append([])
-                used = 0
-            pages[-1].append(segment)
-            used += segment[2] + 1
-    for page_number, page in enumerate(pages, 1):
-        fig = plt.figure(figsize=(8.27, 11.69))
-        try:
-            fig.text(.07, .95, f"Saved run metadata  /  {page_number}", fontsize=15, weight="bold", color="#0f172a")
-            y = .90
-            for keys, values, height in page:
-                fig.text(.07, y, "\n".join(keys), fontsize=7, va="top", color="#475569", linespacing=1.25)
-                fig.text(.40, y, "\n".join(values), fontsize=7, va="top", color="#0f172a", linespacing=1.25)
-                y -= (height + 1) * .016
-            pdf.savefig(fig)
-        finally:
-            plt.close(fig)
-
-
 def generate_report(metrics_path: Path, config_path: Path, output_pdf: Path) -> None:
     """Write a PDF, summary.png, and summary.json from saved artifacts only."""
     metrics_path, config_path, output_pdf = map(Path, (metrics_path, config_path, output_pdf))
@@ -366,6 +221,9 @@ def generate_report(metrics_path: Path, config_path: Path, output_pdf: Path) -> 
         **{key: value for key, value in aggregate.items() if key != "points"},
         "invalid_numeric_fields": sum(row["_invalid_numeric"] for row in rows),
         "max_saved_readings": maxima,
+        "report_design": "A4 landscape / navy-cyan / v2",
+        "per_device_summary": report_pages.device_summaries(rows, aggregate, legacy),
+        "temperature_summary": report_pages.temperature_summary(rows, config),
     }
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     # Stage all artifacts before replacing older report outputs. Input data stays untouched.
@@ -373,20 +231,20 @@ def generate_report(metrics_path: Path, config_path: Path, output_pdf: Path) -> 
         pdf_temp = Path(staging) / "report.pdf"
         png_temp = Path(staging) / "summary.png"
         json_temp = Path(staging) / "summary.json"
-        with plt.rc_context({"font.family": "DejaVu Sans", "axes.facecolor": "white"}):
-            fig = _dashboard(rows, config, aggregate, legacy)
-            try:
-                fig.savefig(png_temp, format="png", dpi=DPI)
-                with PdfPages(pdf_temp) as pdf:
-                    pdf.infodict().update(Title="GPU Stress Test: saved run", Subject="Analytical matmul throughput and sampled GPU telemetry")
+        with plt.rc_context(report_style.RC), PdfPages(pdf_temp) as pdf:
+            pdf.infodict().update(
+                Title=f"GPU Stress Test | {config.get('run_name', 'saved run')}",
+                Author="GPU Stress Test", Creator="GPU Stress Test offline reporter",
+                Subject="Analytical matmul throughput, sampled GPU temperature, and measurement integrity",
+                Keywords="GPU, performance, estimated TFLOPS, temperature, telemetry, reproducibility",
+            )
+            for index, fig in enumerate(report_pages.figures(rows, config, aggregate, legacy, summary)):
+                try:
+                    if index == 0:
+                        fig.savefig(png_temp, format="png", dpi=report_style.DPI)
                     pdf.savefig(fig)
-                    # These fields describe the surrounding generation attempt,
-                    # which has not completed when the source JSON is read.
-                    report_config = {key: value for key, value in config.items()
-                                     if key not in {"report_status", "report_error"}}
-                    _metadata_pages(pdf, report_config, summary)
-            finally:
-                plt.close(fig)
+                finally:
+                    plt.close(fig)
         summary["artifact_sha256"] = {
             output_pdf.name: hashlib.sha256(pdf_temp.read_bytes()).hexdigest(),
             dashboard_path.name: hashlib.sha256(png_temp.read_bytes()).hexdigest(),
