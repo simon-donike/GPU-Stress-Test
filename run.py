@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
         ("seconds", float, "Measured seconds per candidate, excluding warmup (3..60)."),
         ("timeout_seconds", float, "Whole-process timeout per candidate, including startup and warmup."),
         ("target_utilization", float, "Target sampled utilization on every GPU; throughput determines the shortlist."),
-        ("memory_fraction", float, "Maximum VRAM fraction for calibration (0..0.95); default leaves 15% headroom."),
+        ("memory_fraction", float, "Maximum VRAM fraction for calibration (0..0.95); default leaves 15%% headroom."),
     ):
         parser.add_argument(f"--tune-{name.replace('_', '-')}", type=kind,
                             default=getattr(tuning, name), help=description)

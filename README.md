@@ -6,24 +6,54 @@ use it to compare equivalent workloads, precisions, and software stacks.
 
 ## Install
 
-Requires Python 3.10+, PyTorch 2.5+, and a CUDA-compatible NVIDIA driver for GPU
-execution. Calibration also requires Linux, `nvidia-smi`, and idle physical GPUs;
-MIG is not supported by calibration. Dependencies are in [requirements.txt](requirements.txt).
+The reproducible environment uses **Python 3.11.11**, **uv 0.11.24**, and
+**PyTorch 2.5.1**. Linux/Windows x86-64 use the CUDA 12.4 build; other
+platforms use PyPI wheels where available. GPU execution requires a compatible
+NVIDIA driver. Calibration also requires Linux, `nvidia-smi`, and idle physical
+GPUs; MIG is not supported by calibration.
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) version
+0.11.24 (for example, `pipx install uv==0.11.24`), then from this checkout:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
+uv sync --locked
+uv run --locked python run.py --help
+uv run --locked python run.py --dry-run
 ```
 
-Use a CUDA-enabled PyTorch build for GPU execution. CPU mode must be requested
-explicitly; GPU mode never falls back to CPU.
+`uv sync` downloads the pinned Python if needed and creates `.venv`. The committed
+`uv.lock` pins direct and transitive dependencies; `--locked` rejects stale project
+metadata instead of silently updating the lock. CUDA wheels require several GB
+of disk space. The PyTorch source is configured explicitly following
+[uv's PyTorch guidance](https://docs.astral.sh/uv/guides/integration/pytorch/).
+
+Prefix the Python commands below with `uv run --locked`, or activate the environment
+once (`source .venv/bin/activate` on Linux/macOS; `.venv\Scripts\Activate.ps1` in
+PowerShell). CPU mode must be requested explicitly; GPU mode never falls back to CPU.
+This pins the software environment, not hardware, drivers, or deterministic benchmark
+results. PyTorch 2.5.1/CUDA 12.4 may not support newer GPU architectures.
+
+### Updating dependencies
+
+Edit `pyproject.toml`, then deliberately resolve and review upgrades:
+
+```bash
+uv lock --upgrade
+uv sync --locked
+uv export --locked --no-dev --emit-index-url --format requirements-txt --output-file requirements.txt
+```
+
+Commit `pyproject.toml`, `uv.lock`, and the exported `requirements.txt` together.
+The requirements file is a generated compatibility option for pip users;
+`uv sync --locked` is the primary workflow. Update `.python-version` and Docker's
+Python image together when changing Python, and keep Docker's uv version aligned
+with `tool.uv.required-version`.
 
 ## Run
 
 **GPU runs calibrate batch size, then automatically start the stress test**
 (`--autotune`, enabled by default).
-The commands below are usage examples; none were executed to prepare this README.
+The commands below are usage examples; stress workloads are not part of installation.
 
 | Command | Behavior |
 | --- | --- |
@@ -176,8 +206,9 @@ for timing boundaries, precision caveats, and the exact accounting convention.
 
 ## Docker
 
-The image pins PyTorch 2.5.1 with CUDA 12.4. GPU containers require the NVIDIA
-Container Toolkit. The default container command prints help; an explicit run
+The image installs the same `uv.lock` with Python 3.11.11 and uv 0.11.24.
+On Linux x86-64 it includes PyTorch 2.5.1 with CUDA 12.4 runtime libraries.
+GPU containers require the NVIDIA Container Toolkit and a compatible host driver. The default container command prints help; an explicit run
 command starts calibration and stress:
 
 ```bash

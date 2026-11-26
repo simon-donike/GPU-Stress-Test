@@ -1,4 +1,2 @@
-# Keep the base image's CUDA-enabled torch version from being upgraded by dependency resolution.
-torch==2.5.1
-pytorch-lightning>=2.2,<3
-matplotlib>=3.7,<4
+# Compatibility alias; Docker installs uv.lock directly.
+-r requirements.txt
